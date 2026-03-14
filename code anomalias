@@ -1,0 +1,68 @@
+# 1. Importar librerías necesarias
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 2. Descargar datos del S&P 500 (usamos el ETF SPY como proxy)
+print("Descargando datos del SPY...")
+ticker = "NDX"
+datos = yf.download(ticker, start="2026-01-01", end="2026-03-06")
+
+# 3. Calcular métricas relevantes
+#    - Rendimiento diario (porcentaje de cambio)
+datos['Retorno'] = datos['Close'].pct_change() * 100
+
+#    - Media móvil y desviación estándar de los retornos (ventana de 30 días para el Z-Score)
+#      Esto será nuestro "comportamiento normal" de referencia.
+datos['Media_Retorno_30d'] = datos['Retorno'].rolling(window=30).mean()
+datos['Std_Retorno_30d'] = datos['Retorno'].rolling(window=30).std()
+
+# 4. Calcular el Z-Score para los retornos diarios
+#    Z = (Valor Actual - Media Histórica) / Desviación Histórica
+datos['ZScore_Retorno'] = (datos['Retorno'] - datos['Media_Retorno_30d']) / datos['Std_Retorno_30d']
+
+# 5. Definir el umbral de anomalía
+#    Un Z-Score de |3| es un evento muy poco probable en una distribución normal (99.7% de los datos caen dentro)
+UMBRAL_Z = 3.0
+
+# 6. Marcar las anomalías
+datos['Anomalia'] = np.abs(datos['ZScore_Retorno']) > UMBRAL_Z
+
+# 7. Mostrar los resultados
+print("\n--- Últimas 10 filas del análisis ---")
+print(datos[['Retorno', 'Media_Retorno_30d', 'Std_Retorno_30d', 'ZScore_Retorno', 'Anomalia']].tail(10))
+
+print(f"\n--- Días con anomalías (Z-Score > |{UMBRAL_Z}|) ---")
+anomalias = datos[datos['Anomalia'] == True]
+print(anomalias[['Retorno', 'ZScore_Retorno']])
+
+# 8. Visualizar (la parte más importante para entender)
+plt.figure(figsize=(14,7))
+
+# Gráfico 1: Precio del SPY
+plt.subplot(2, 1, 1)
+plt.plot(datos.index, datos['Close'], label='Precio de Cierre NDX', color='blue')
+plt.title('Precio del NDX y Anomalías Detectadas')
+plt.ylabel('Precio ($)')
+plt.legend()
+
+# Resaltar los puntos anómalos en el gráfico de precio
+fechas_anomalias = anomalias.index
+precios_anomalias = datos.loc[fechas_anomalias, 'Close']
+plt.scatter(fechas_anomalias, precios_anomalias, color='red', label='Día Anómalo', zorder=5)
+plt.legend()
+
+# Gráfico 2: Z-Score de los Retornos
+plt.subplot(2, 1, 2)
+plt.plot(datos.index, datos['ZScore_Retorno'], label='Z-Score del Retorno Diario', color='green')
+plt.axhline(y=UMBRAL_Z, color='red', linestyle='--', label=f'Umbral +{UMBRAL_Z}')
+plt.axhline(y=-UMBRAL_Z, color='red', linestyle='--', label=f'Umbral -{UMBRAL_Z}')
+plt.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+plt.title('Z-Score del Retorno Diario (Ventana 30 días)')
+plt.ylabel('Z-Score')
+plt.xlabel('Fecha')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
